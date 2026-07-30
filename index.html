@@ -201,6 +201,7 @@ footer {
 .tot.warn .v { color: var(--susp); font-weight: 350; }
 .theme-toggle, .sound-toggle {
   position: fixed; bottom: 2vh; right: 1.2vw; z-index: 300;
+  display: flex; align-items: center; justify-content: center; padding: 0;
   width: 6.4vh; height: 6.4vh; border-radius: 50%;
   border: 0.35vh solid var(--muted);
   background: rgba(127,138,148,.16);
@@ -306,10 +307,13 @@ function enableLiveSync(onChange) {
    One key shared by every screen; each page passes its own default.
    Changing it in one window updates the others live.             */
 const THEME_KEY = "qc-theme";
+/* silhouette icons (stroke, currentColor) */
+const ICON_SUN = `<svg viewBox="0 0 24 24" style="width:58%;height:58%" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="4.3"/><path d="M12 2.6v2.1M12 19.3v2.1M2.6 12h2.1M19.3 12h2.1M5.4 5.4l1.5 1.5M17.1 17.1l1.5 1.5M18.6 5.4l-1.5 1.5M6.9 17.1l-1.5 1.5"/></svg>`;
+const ICON_MOON = `<svg viewBox="0 0 24 24" style="width:56%;height:56%" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20.2 14.5A8.6 8.6 0 0 1 9.5 3.8a8.6 8.6 0 1 0 10.7 10.7z"/></svg>`;
 function applyTheme(t) {
   document.documentElement.dataset.theme = t;
   const b = document.getElementById("theme-toggle");
-  if (b) b.textContent = t === "dark" ? "☀️" : "🌙";
+  if (b) { b.innerHTML = t === "dark" ? ICON_SUN : ICON_MOON; b.title = t === "dark" ? "Modo claro" : "Modo oscuro"; }
 }
 function initTheme(def = "light") {
   applyTheme(localStorage.getItem(THEME_KEY) || def);
@@ -929,7 +933,7 @@ function tickClock() {
 }
 
 document.body.addEventListener("click", () => {
-  if (SIM.active && audioLocked()) { ensureAudio(); return; } // first tap unlocks sound
+  ensureAudio(); // silent unlock, no banner
   if (document.fullscreenElement) document.exitFullscreen();
   else document.documentElement.requestFullscreen().catch(() => {});
 });
@@ -956,18 +960,19 @@ function audioLocked() { return !actx || actx.state !== "running"; }
 function ensureAudio() {
   if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
   if (actx && actx.state === "suspended") actx.resume();
-  setTimeout(updateSoundHint, 150);
 }
 function toggleSound() {
   soundOn = !soundOn;
   localStorage.setItem("qc-sound", soundOn ? "on" : "off");
   if (soundOn) ensureAudio();
-  updateSoundBtn(); updateSoundHint();
+  updateSoundBtn();
 }
+const ICON_SPK = `<svg viewBox="0 0 24 24" style="width:58%;height:58%" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 5.2 7 9H3.6v6H7l4.5 3.8z" fill="currentColor" stroke="none"/><path d="M15.4 9a4.4 4.4 0 0 1 0 6M18.1 6.6a8 8 0 0 1 0 10.8"/></svg>`;
+const ICON_MUTE = `<svg viewBox="0 0 24 24" style="width:58%;height:58%" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 5.2 7 9H3.6v6H7l4.5 3.8z" fill="currentColor" stroke="none"/><path d="M15.8 9.6l5 4.8M20.8 9.6l-5 4.8"/></svg>`;
 function updateSoundBtn() {
   const b = document.getElementById("sound-toggle");
   if (!b) return;
-  b.textContent = soundOn ? "🔊" : "🔇";
+  b.innerHTML = soundOn ? ICON_SPK : ICON_MUTE;
   b.classList.toggle("muted", !soundOn);
   b.title = soundOn ? "Silenciar" : "Activar sonido";
 }
@@ -993,10 +998,6 @@ const sndArrive = () => { tone(587, 0, 0.16, "sine", 0.28); tone(784, 0.18, 0.16
 const sndOk     = () => { tone(523, 0, 0.14); tone(659, 0.15, 0.14); tone(784, 0.3, 0.4); }; // acorde asc.
 const sndBad    = () => { tone(210, 0, 0.32, "square", 0.16); tone(165, 0.38, 0.55, "square", 0.16); }; // bocina
 
-function updateSoundHint() {
-  const el = document.getElementById("sound-hint");
-  if (el) el.style.display = SIM.active && soundOn && audioLocked() ? "block" : "none";
-}
 
 /* ---------- render del ciclo ---------- */
 function simIndics(t, hora) {
@@ -1024,10 +1025,15 @@ function simArrival(t, hora) {
   v.className = "verdict v-idle";
   v.innerHTML = `<div class="ring" style="animation: connpulse 1.6s ease-in-out infinite">···</div>
     <div class="word">EN PRUEBAS</div><div class="note">Tomando muestras · QC</div>`;
-  simIndics(t, hora);
+  // aún no hay resultados — se toman durante esta fase
+  document.getElementById("indics").innerHTML =
+    cell("Slump", null, "in", null) + cell("Peso Unit", null, "pcf", null) +
+    cell("Aire", null, "%", null) + cell("Temp", null, "°F", null) +
+    `<div class="cell"><div class="k"><i></i>Hora</div><div class="v" style="font-size:7.6vh">${fmt12(hora)}</div><div class="u">llegada</div></div>`;
   simTotals();
 }
-function simVerdict(t) {
+function simVerdict(t, hora) {
+  simIndics(t, hora); // los resultados aparecen junto con el veredicto
   const v = document.getElementById("verdict");
   if (t.bad) {
     document.body.className = "s-susp";
@@ -1050,25 +1056,18 @@ function simStep() {
   simArrival(t, hora);
   setTimeout(() => {
     if (t.bad) SIM.rej++; else SIM.cy += t.vol;
-    simVerdict(t);
+    simVerdict(t, hora);
     setTimeout(() => { SIM.i++; simStep(); }, 10000); // veredicto visible 10 s
   }, 5000); // pruebas 5 s
 }
 function startSim() {
   SIM.active = true;
   document.getElementById("proj-line").textContent = "PR-52 · FASE 10 · CARRIL L3 · SIMULACIÓN";
-  const hint = document.createElement("div");
-  hint.id = "sound-hint";
-  hint.textContent = "🔊 TOQUE LA PANTALLA PARA ACTIVAR EL SONIDO";
-  hint.style.cssText = "position:fixed; top:2vh; left:50%; transform:translateX(-50%); z-index:250;" +
-    "font-size:1.9vh; font-weight:700; letter-spacing:.2em; color:var(--act);" +
-    "background:rgba(245,184,61,.12); border:1px solid var(--act); border-radius:999px; padding:1vh 2.2vw;";
-  document.body.appendChild(hint);
   ensureAudio();
-  // any interaction unlocks the audio (browser autoplay policy)
+  // silent unlock on any interaction + periodic retry (browser autoplay policy)
   ["pointerdown", "touchstart", "keydown"].forEach((ev) =>
     window.addEventListener(ev, ensureAudio));
-  updateSoundHint();
+  const retry = setInterval(() => { if (audioLocked()) ensureAudio(); else clearInterval(retry); }, 3000);
   simStep();
 }
 
