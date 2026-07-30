@@ -1039,27 +1039,40 @@ function simVerdict(t, hora) {
     document.body.className = "s-susp";
     v.className = "verdict v-susp";
     v.innerHTML = `<div class="ring">✕</div><div class="word">RECHAZADO</div><div class="note">${t.reason || "Fuera de límites"} · No descargar</div>`;
-    sndBad();
+    if (!document.hidden) sndBad();
   } else {
     document.body.className = "s-ok";
     v.className = "verdict v-ok";
     v.innerHTML = `<div class="ring">✓</div><div class="word">ACEPTADO</div><div class="note">Proceda a descargar</div>`;
-    sndOk();
+    if (!document.hidden) sndOk();
   }
   simTotals();
 }
+/* Secuencia estricta de sonidos:
+   llegada → (5 s) → veredicto (aceptado o rechazado) → (15 s) → próxima llegada.
+   Nada más suena. Con la pestaña oculta no suena ni se acumulan ciclos. */
+function clearSimTimers() {
+  clearTimeout(SIM.tVerdict); clearTimeout(SIM.tNext);
+  SIM.tVerdict = SIM.tNext = null;
+}
 function simStep() {
+  clearSimTimers();
   const t = SIM_TRUCKS[SIM.i % SIM_TRUCKS.length];
   const hora = nowHM();
   SIM.loads++;
-  sndArrive();
+  if (!document.hidden) sndArrive();          // sonido 1: llegó un camión
   simArrival(t, hora);
-  setTimeout(() => {
+  SIM.tVerdict = setTimeout(() => {
     if (t.bad) SIM.rej++; else SIM.cy += t.vol;
-    simVerdict(t, hora);
-    setTimeout(() => { SIM.i++; simStep(); }, 10000); // veredicto visible 10 s
+    simVerdict(t, hora);                       // sonido 2 (dentro): aceptado o rechazado
+    SIM.tNext = setTimeout(() => { SIM.i++; simStep(); }, 15000); // veredicto visible 15 s
   }, 5000); // pruebas 5 s
 }
+document.addEventListener("visibilitychange", () => {
+  if (!SIM.active) return;
+  if (document.hidden) clearSimTimers();       // pausa: no acumular timers ni sonidos
+  else simStep();                              // al volver: ciclo fresco, en orden
+});
 function startSim() {
   SIM.active = true;
   document.getElementById("proj-line").textContent = "PR-52 · FASE 10 · CARRIL L3 · SIMULACIÓN";
