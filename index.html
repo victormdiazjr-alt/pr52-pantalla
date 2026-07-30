@@ -71,13 +71,9 @@ header {
   padding: 3.2vh 3.4vw 0;
   position: relative;
 }
-.wordmark { display: flex; align-items: baseline; gap: 0.9vw; }
-.wordmark .qc {
-  font-size: 2.6vh; font-weight: 800; letter-spacing: .06em;
-  color: var(--text);
-}
-.wordmark .qc::after { content: "·"; color: var(--muted); margin-left: 0.9vw; font-weight: 400; }
-.wordmark .proj { font-size: 2.2vh; font-weight: 500; color: var(--muted); letter-spacing: .04em; }
+.brand-left { display: flex; align-items: center; gap: 1.3vw; }
+.qclogo { height: 9.5vh; width: auto; flex: none; filter: drop-shadow(0 0.3vh 1vh rgba(0,0,0,.25)); }
+.brand-name { font-size: 3vh; font-weight: 700; letter-spacing: .015em; }
 .meta-line { font-size: 1.9vh; color: var(--muted); font-weight: 500; letter-spacing: .12em; text-transform: uppercase; }
 .clock { margin-left: auto; text-align: right; line-height: 1; }
 .clock .hm { font-size: 6.6vh; font-weight: 200; font-variant-numeric: tabular-nums; letter-spacing: .02em; }
@@ -212,9 +208,27 @@ footer {
 <div id="ambient"></div>
 
 <header>
-  <div>
-    <div class="wordmark"><span class="qc">QC</span><span class="proj">Control de Hormigón</span></div>
-    <div class="meta-line" id="proj-line" style="margin-top:1vh">PR-52</div>
+  <div class="brand-left">
+    <svg class="qclogo" viewBox="0 0 122 122" xmlns="http://www.w3.org/2000/svg" aria-label="QC — Segarra Engineering">
+      <!-- outer navy ring with green tick at 12 o'clock -->
+      <circle cx="54" cy="54" r="44" fill="none" stroke="#26316e" stroke-width="14"
+              transform="rotate(-83 54 54)" stroke-dasharray="243 33.5"/>
+      <circle cx="54" cy="54" r="44" fill="none" stroke="#94c83d" stroke-width="14"
+              transform="rotate(-90 54 54)" stroke-dasharray="9 267.5" stroke-dashoffset="4.5"/>
+      <!-- inner blue ring -->
+      <circle cx="54" cy="54" r="28.5" fill="none" stroke="#2c49b6" stroke-width="13"/>
+      <!-- gray center -->
+      <circle cx="54" cy="54" r="17" fill="#b4b7bb"/>
+      <!-- handle -->
+      <path d="M73 64 L64 73 L86 95 L95 86 Z" fill="#2c49b6"/>
+      <!-- navy tag with c -->
+      <rect x="84" y="84" width="32" height="32" rx="6" fill="#26316e"/>
+      <text x="100" y="107" text-anchor="middle" font-family="Arial, sans-serif" font-weight="800" font-size="22" fill="#fff">c</text>
+    </svg>
+    <div>
+      <div class="brand-name">Segarra Engineering</div>
+      <div class="meta-line" id="proj-line" style="margin-top:0.9vh">PR-52</div>
+    </div>
   </div>
   <div class="clock">
     <div class="hm" id="clock-hm">--:--</div>
@@ -934,7 +948,7 @@ function tone(f, t0, dur, type = "sine", g = 0.2) {
   gn.gain.exponentialRampToValueAtTime(0.001, t + dur);
   o.start(t); o.stop(t + dur + 0.05);
 }
-const sndArrive = () => { tone(660, 0, 0.18); tone(880, 0.2, 0.28); };                       // din-don
+const sndArrive = () => { tone(587, 0, 0.16, "sine", 0.28); tone(784, 0.18, 0.16, "sine", 0.28); tone(988, 0.36, 0.4, "sine", 0.28); }; // campana de llegada (3 tonos)
 const sndOk     = () => { tone(523, 0, 0.14); tone(659, 0.15, 0.14); tone(784, 0.3, 0.4); }; // acorde asc.
 const sndBad    = () => { tone(210, 0, 0.32, "square", 0.16); tone(165, 0.38, 0.55, "square", 0.16); }; // bocina
 
@@ -1009,6 +1023,9 @@ function startSim() {
     "background:rgba(245,184,61,.12); border:1px solid var(--act); border-radius:999px; padding:1vh 2.2vw;";
   document.body.appendChild(hint);
   ensureAudio();
+  // any interaction unlocks the audio (browser autoplay policy)
+  ["pointerdown", "touchstart", "keydown"].forEach((ev) =>
+    window.addEventListener(ev, ensureAudio));
   updateSoundHint();
   simStep();
 }
