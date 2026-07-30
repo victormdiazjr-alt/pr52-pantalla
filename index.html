@@ -221,13 +221,16 @@ footer {
 
 <header>
   <div class="brand-left">
-    <svg class="qclogo" viewBox="0 0 120 166" xmlns="http://www.w3.org/2000/svg" aria-label="Segarra Engineering">
-      <!-- diamond -->
-      <polygon points="60,6 114,38 60,70 6,38" fill="none" stroke="#2b3a80" stroke-width="9"/>
-      <!-- layered chevrons -->
-      <polyline points="6,76 60,108 114,76" fill="none" stroke="#85868c" stroke-width="9"/>
-      <polyline points="6,103 60,135 114,103" fill="none" stroke="#85868c" stroke-width="9"/>
-      <polyline points="6,130 60,162 114,130" fill="none" stroke="#85868c" stroke-width="9"/>
+    <svg class="qclogo" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" aria-label="QC">
+      <!-- Q ring (two arcs, gaps for the green dot and the c) -->
+      <path d="M 91.96 38.47 A 40 40 0 0 1 93.58 69.68" fill="none" stroke="#2b3a8c" stroke-width="17"/>
+      <path d="M 64.32 95.12 A 40 40 0 1 1 73.53 20.05" fill="none" stroke="#2b3a8c" stroke-width="17"/>
+      <!-- green dot -->
+      <circle cx="84.3" cy="27.7" r="11" fill="#a4cd39"/>
+      <!-- Q tail -->
+      <polygon points="64.05,57.56 86.05,87.56 73.95,96.44 51.95,66.44" fill="#2b3a8c"/>
+      <!-- c -->
+      <path d="M 103.03 77.42 A 12.5 12.5 0 1 0 103.03 96.58" fill="none" stroke="#2b3a8c" stroke-width="10"/>
     </svg>
     <div>
       <div class="brand-name">Segarra Engineering</div>
@@ -957,9 +960,20 @@ const SIM_TRUCKS = [
 let actx = null;
 let soundOn = localStorage.getItem("qc-sound") !== "off"; // habilitado por defecto
 function audioLocked() { return !actx || actx.state !== "running"; }
+let pendingSnd = null; // sonido de un evento que ocurrió con el audio aún bloqueado
 function ensureAudio() {
   if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
-  if (actx && actx.state === "suspended") actx.resume();
+  if (actx && actx.state === "suspended") {
+    actx.resume().then(() => {
+      // al desbloquear, suena de inmediato el último evento pendiente
+      if (pendingSnd && soundOn) { const k = pendingSnd; pendingSnd = null; SNDS[k](); }
+    }).catch(() => {});
+  }
+}
+function playSnd(kind) {
+  if (!soundOn || document.hidden) return;
+  if (audioLocked()) { pendingSnd = kind; ensureAudio(); return; }
+  SNDS[kind]();
 }
 function toggleSound() {
   soundOn = !soundOn;
@@ -997,6 +1011,7 @@ function tone(f, t0, dur, type = "sine", g = 0.2) {
 const sndArrive = () => { tone(587, 0, 0.16, "sine", 0.28); tone(784, 0.18, 0.16, "sine", 0.28); tone(988, 0.36, 0.4, "sine", 0.28); }; // campana de llegada (3 tonos)
 const sndOk     = () => { tone(523, 0, 0.14); tone(659, 0.15, 0.14); tone(784, 0.3, 0.4); }; // acorde asc.
 const sndBad    = () => { tone(210, 0, 0.32, "square", 0.16); tone(165, 0.38, 0.55, "square", 0.16); }; // bocina
+const SNDS = { arrive: sndArrive, ok: sndOk, bad: sndBad };
 
 
 /* ---------- render del ciclo ---------- */
@@ -1039,12 +1054,12 @@ function simVerdict(t, hora) {
     document.body.className = "s-susp";
     v.className = "verdict v-susp";
     v.innerHTML = `<div class="ring">✕</div><div class="word">RECHAZADO</div><div class="note">${t.reason || "Fuera de límites"} · No descargar</div>`;
-    if (!document.hidden) sndBad();
+    playSnd("bad");
   } else {
     document.body.className = "s-ok";
     v.className = "verdict v-ok";
     v.innerHTML = `<div class="ring">✓</div><div class="word">ACEPTADO</div><div class="note">Proceda a descargar</div>`;
-    if (!document.hidden) sndOk();
+    playSnd("ok");
   }
   simTotals();
 }
@@ -1060,7 +1075,7 @@ function simStep() {
   const t = SIM_TRUCKS[SIM.i % SIM_TRUCKS.length];
   const hora = nowHM();
   SIM.loads++;
-  if (!document.hidden) sndArrive();          // sonido 1: llegó un camión
+  playSnd("arrive");                          // sonido 1: llegó un camión
   simArrival(t, hora);
   SIM.tVerdict = setTimeout(() => {
     if (t.bad) SIM.rej++; else SIM.cy += t.vol;
