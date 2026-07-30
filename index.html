@@ -116,6 +116,15 @@ header {
   letter-spacing: .06em; margin-top: 1.8vh;
 }
 .truck .sub b { color: var(--text); font-weight: 650; }
+.truck .plant {
+  font-size: 2vh; font-weight: 700; letter-spacing: .22em; text-transform: uppercase;
+  color: var(--muted); margin-top: 1.4vh;
+  display: flex; align-items: center; gap: 0.7vw;
+}
+.truck .plant i {
+  width: 1.1vh; height: 1.1vh; border-radius: 50%;
+  background: var(--idle); box-shadow: 0 0 1.2vh var(--idle);
+}
 
 .verdict { margin-left: auto; text-align: right; }
 .verdict .ring {
@@ -190,7 +199,7 @@ footer {
 .tot .v { font-size: 5.4vh; font-weight: 250; font-variant-numeric: tabular-nums; }
 .tot .u { font-size: 1.9vh; color: var(--muted); font-weight: 600; }
 .tot.warn .v { color: var(--susp); font-weight: 350; }
-.theme-toggle {
+.theme-toggle, .sound-toggle {
   position: fixed; bottom: 2vh; right: 1.2vw; z-index: 300;
   width: 6.4vh; height: 6.4vh; border-radius: 50%;
   border: 0.35vh solid var(--muted);
@@ -201,7 +210,9 @@ footer {
   box-shadow: 0 0.4vh 1.8vh rgba(0,0,0,.35);
   transition: transform .15s, border-color .15s;
 }
-.theme-toggle:hover { transform: scale(1.1); border-color: var(--text); }
+.theme-toggle:hover, .sound-toggle:hover { transform: scale(1.1); border-color: var(--text); }
+.sound-toggle { right: calc(1.2vw + 8vh); }
+.sound-toggle.muted { opacity: .55; border-style: dashed; }
 </style>
 </head>
 <body class="s-idle">
@@ -209,21 +220,13 @@ footer {
 
 <header>
   <div class="brand-left">
-    <svg class="qclogo" viewBox="0 0 122 122" xmlns="http://www.w3.org/2000/svg" aria-label="QC — Segarra Engineering">
-      <!-- outer navy ring with green tick at 12 o'clock -->
-      <circle cx="54" cy="54" r="44" fill="none" stroke="#26316e" stroke-width="14"
-              transform="rotate(-83 54 54)" stroke-dasharray="243 33.5"/>
-      <circle cx="54" cy="54" r="44" fill="none" stroke="#94c83d" stroke-width="14"
-              transform="rotate(-90 54 54)" stroke-dasharray="9 267.5" stroke-dashoffset="4.5"/>
-      <!-- inner blue ring -->
-      <circle cx="54" cy="54" r="28.5" fill="none" stroke="#2c49b6" stroke-width="13"/>
-      <!-- gray center -->
-      <circle cx="54" cy="54" r="17" fill="#b4b7bb"/>
-      <!-- handle -->
-      <path d="M73 64 L64 73 L86 95 L95 86 Z" fill="#2c49b6"/>
-      <!-- navy tag with c -->
-      <rect x="84" y="84" width="32" height="32" rx="6" fill="#26316e"/>
-      <text x="100" y="107" text-anchor="middle" font-family="Arial, sans-serif" font-weight="800" font-size="22" fill="#fff">c</text>
+    <svg class="qclogo" viewBox="0 0 120 166" xmlns="http://www.w3.org/2000/svg" aria-label="Segarra Engineering">
+      <!-- diamond -->
+      <polygon points="60,6 114,38 60,70 6,38" fill="none" stroke="#2b3a80" stroke-width="9"/>
+      <!-- layered chevrons -->
+      <polyline points="6,76 60,108 114,76" fill="none" stroke="#85868c" stroke-width="9"/>
+      <polyline points="6,103 60,135 114,103" fill="none" stroke="#85868c" stroke-width="9"/>
+      <polyline points="6,130 60,162 114,130" fill="none" stroke="#85868c" stroke-width="9"/>
     </svg>
     <div>
       <div class="brand-name">Segarra Engineering</div>
@@ -242,6 +245,7 @@ footer {
     <div class="lbl">Camión</div>
     <div class="num" id="truck-num">—</div>
     <div class="sub" id="truck-sub">Sin camiones registrados hoy</div>
+    <div class="plant" id="truck-plant" style="display:none"><i></i><span></span></div>
   </div>
   <div class="verdict v-idle" id="verdict">
     <div class="ring">—</div>
@@ -814,6 +818,20 @@ function proximity(key, t) {
   return null;
 }
 
+/* plant name display: "01-SAN JUAN" → "Planta San Juan" */
+function prettyPlant(p) {
+  if (!p) return null;
+  const name = String(p).replace(/^\d+\s*-\s*/, "").toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+  return /planta/i.test(name) ? name : "Planta " + name;
+}
+function setPlant(p) {
+  const el = document.getElementById("truck-plant");
+  const name = prettyPlant(p);
+  el.style.display = name ? "flex" : "none";
+  if (name) el.querySelector("span").textContent = name;
+}
+
 /* 12-hour time display (data is stored as 24h HH:MM) */
 function fmt12(hm) {
   if (!hm) return null;
@@ -851,6 +869,7 @@ function render() {
     document.body.className = "s-idle";
     document.getElementById("truck-num").textContent = "—";
     document.getElementById("truck-sub").innerHTML = "Sin camiones registrados hoy";
+    setPlant(null);
     verdict.className = "verdict v-idle";
     verdict.innerHTML = `<div class="ring">—</div><div class="word">EN ESPERA</div><div class="note">QC en vivo</div>`;
     document.getElementById("indics").innerHTML =
@@ -865,6 +884,7 @@ function render() {
     document.getElementById("truck-num").textContent = last.truck || "—";
     document.getElementById("truck-sub").innerHTML =
       `Ticket <b>${esc(last.ticket || "—")}</b> · Load <b>#${rows.length}</b>${last.vol ? ` · <b>${fmt(last.vol, 1)}</b> CY` : ""}`;
+    setPlant(last.plant);
     verdict.className = "verdict v-" + s;
     verdict.innerHTML = bad
       ? `<div class="ring">✕</div><div class="word">RECHAZADO</div><div class="note">No descargar</div>`
@@ -922,23 +942,44 @@ document.body.addEventListener("click", () => {
 const SIM = { active: false, i: 0, loads: 11, cy: 112.5, rej: 0 };
 
 const SIM_TRUCKS = [
-  { truck: "115", ticket: "66901", vol: 10, slump: 3.25, uw: 150.3, air: 1.2, temp: 88, bad: false },
-  { truck: "122", ticket: "66902", vol: 10, slump: 3.5,  uw: 149.8, air: 1.4, temp: 90, bad: false },
+  { truck: "115", ticket: "66901", vol: 10, slump: 3.25, uw: 150.3, air: 1.2, temp: 88, bad: false, plant: "Planta San Juan" },
+  { truck: "122", ticket: "66902", vol: 10, slump: 3.5,  uw: 149.8, air: 1.4, temp: 90, bad: false, plant: "Planta Gurabo" },
   { truck: "108", ticket: "66903", vol: 10, slump: 3.0,  uw: 150.1, air: 1.3, temp: 97, bad: true,
-    reason: "TEMPERATURA 97 °F — MÁX 95" },
-  { truck: "131", ticket: "66904", vol: 10, slump: 2.75, uw: 150.6, air: 1.1, temp: 89, bad: false },
+    reason: "TEMPERATURA 97 °F — MÁX 95", plant: "Planta San Juan" },
+  { truck: "131", ticket: "66904", vol: 10, slump: 2.75, uw: 150.6, air: 1.1, temp: 89, bad: false, plant: "Planta Gurabo" },
 ];
 
 /* ---------- sonidos (WebAudio, sin archivos) ---------- */
 let actx = null;
+let soundOn = localStorage.getItem("qc-sound") !== "off"; // habilitado por defecto
 function audioLocked() { return !actx || actx.state !== "running"; }
 function ensureAudio() {
   if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
   if (actx && actx.state === "suspended") actx.resume();
   setTimeout(updateSoundHint, 150);
 }
+function toggleSound() {
+  soundOn = !soundOn;
+  localStorage.setItem("qc-sound", soundOn ? "on" : "off");
+  if (soundOn) ensureAudio();
+  updateSoundBtn(); updateSoundHint();
+}
+function updateSoundBtn() {
+  const b = document.getElementById("sound-toggle");
+  if (!b) return;
+  b.textContent = soundOn ? "🔊" : "🔇";
+  b.classList.toggle("muted", !soundOn);
+  b.title = soundOn ? "Silenciar" : "Activar sonido";
+}
+function mountSoundToggle() {
+  const b = document.createElement("button");
+  b.id = "sound-toggle"; b.className = "sound-toggle";
+  b.onclick = (e) => { e.stopPropagation(); toggleSound(); };
+  document.body.appendChild(b);
+  updateSoundBtn();
+}
 function tone(f, t0, dur, type = "sine", g = 0.2) {
-  if (audioLocked()) return;
+  if (!soundOn || audioLocked()) return;
   const o = actx.createOscillator(), gn = actx.createGain();
   o.type = type; o.frequency.value = f;
   o.connect(gn); gn.connect(actx.destination);
@@ -954,7 +995,7 @@ const sndBad    = () => { tone(210, 0, 0.32, "square", 0.16); tone(165, 0.38, 0.
 
 function updateSoundHint() {
   const el = document.getElementById("sound-hint");
-  if (el) el.style.display = SIM.active && audioLocked() ? "block" : "none";
+  if (el) el.style.display = SIM.active && soundOn && audioLocked() ? "block" : "none";
 }
 
 /* ---------- render del ciclo ---------- */
@@ -978,6 +1019,7 @@ function simArrival(t, hora) {
   document.getElementById("truck-num").textContent = t.truck;
   document.getElementById("truck-sub").innerHTML =
     `Ticket <b>${t.ticket}</b> · Load <b>#${SIM.loads}</b> · <b>${fmt(t.vol, 1)}</b> CY · llegó ${fmt12(hora)}`;
+  setPlant(t.plant);
   const v = document.getElementById("verdict");
   v.className = "verdict v-idle";
   v.innerHTML = `<div class="ring" style="animation: connpulse 1.6s ease-in-out infinite">···</div>
@@ -1033,6 +1075,7 @@ function startSim() {
 loadDB();
 initTheme("dark"); /* the field display defaults to dark */
 mountThemeToggle();
+mountSoundToggle();
 enableLiveSync(render);
 render();
 tickClock();
