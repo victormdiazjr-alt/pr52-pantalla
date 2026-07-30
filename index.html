@@ -296,16 +296,39 @@ let db;
 function loadDB() {
   try {
     const raw = localStorage.getItem(DB_KEY);
-    if (raw) { db = JSON.parse(raw); if (!db.dayMeta) db.dayMeta = {}; return; }
+    if (raw) { db = JSON.parse(raw); migrateDB(); return; }
   } catch (e) { console.error(e); }
   db = {
-    version: 1,
+    version: 2,
     project: structuredClone(QC_SEED.project),
     plan: structuredClone(QC_SEED.plan),
     tests: structuredClone(QC_SEED.tests),
     dayMeta: {},
+    humidity: [],
   };
+  migrateDB();
   saveDB();
+}
+/* Esquema v2: record por conduce (compañía + número), humedades, plan del día */
+function migrateDB() {
+  if (!db.humidity) db.humidity = [];
+  if (!db.dayMeta) db.dayMeta = {};
+  if (!db.plan.humidityMaxHours) db.plan.humidityMaxHours = 3;
+  for (const t of db.tests) {
+    if (!t.company) t.company = plantCompany(t.plant);   // clave: compañía + conduce
+    if (!t.source) t.source = "excel";                    // qr | ocr | manual | excel
+  }
+  db.version = 2;
+}
+/* La compañía sale de la planta cuando no viene declarada (histórico) */
+function plantCompany(plant) {
+  if (!plant) return "—";
+  return /san juan|gurabo/i.test(plant) ? "Concretec" : String(plant).replace(/^\d+\s*-\s*/, "");
+}
+/* Clave única del conduce: nunca chocan tickets de plantas distintas */
+function conduceKey(t) { return (t.company || "—") + "·" + (t.ticket || "?"); }
+function findConduce(company, ticket) {
+  return db.tests.find((t) => conduceKey(t) === (company || "—") + "·" + ticket) || null;
 }
 function saveDB() { localStorage.setItem(DB_KEY, JSON.stringify(db)); }
 
@@ -486,6 +509,167 @@ function dayStats(day) {
     avgWait: waits.length ? waits.reduce((a, b) => a + b, 0) / waits.length : null,
     firstStart: starts[0] || null, lastEnd: ends[ends.length - 1] || null, hours,
   };
+}
+
+/* ------------------------------------------------------------ plan del día / losas
+   El contratista necesita: yardas colocadas y pendientes, camiones esperando,
+   progreso del tiro y cuántas losas lleva de las planificadas.          */
+
+/* Extrae códigos de losa del texto de identificación: "L3-0.936 to L3-0.929" → 2 */
+function slabCodes(ident) {
+  if (!ident) return [];
+  const m = String(ident).match(/L\s?\d+\s?-\s?\d+\.\d+/gi);
+  return m ? m.map((s) => s.replace(/\s+/g, "").toUpperCase()) : [];
+}
+
+/* Camión "esperando": llegó, no fue rechazado y todavía no terminó de descargar */
+function trucksWaiting(day) {
+  return testsOfDate(day).filter((t) => t.arrive && !t.end && !t.rejected);
+}
+function trucksDischarging(day) {
+  return testsOfDate(day).filter((t) => t.start && !t.end && !t.rejected);
+}
+
+function dayProgress(day) {
+  const meta = db.dayMeta[day] || {};
+  const rows = testsOfDate(day);
+  const placed = rows.filter((t) => !t.rejected).reduce((a, t) => a + (num(t.vol) || 0), 0);
+  const cyPlan = num(meta.cyPlan);
+  const losasPlan = num(meta.losasPlan);
+  const done = new Set();
+  for (const t of rows) if (!t.rejected && t.end) slabCodes(t.ident).forEach((c) => done.add(c));
+  const losasDone = done.size;
+  const waiting = trucksWaiting(day);
+  const evaluated = rows.filter((t) => worstZone(t) != null);
+  const conforming = evaluated.filter((t) => !t.rejected && worstZone(t) !== "susp").length;
+  return {
+    placed,
+    cyPlan,
+    pending: cyPlan != null ? Math.max(0, cyPlan - placed) : null,
+    pct: cyPlan ? Math.min(100, placed / cyPlan * 100) : null,
+    losasPlan, losasDone,
+    losasPct: losasPlan ? Math.min(100, losasDone / losasPlan * 100) : null,
+    waiting, waitingCY: waiting.reduce((a, t) => a + (num(t.vol) || 0), 0),
+    discharging: trucksDischarging(day),
+    loads: rows.length,
+    rejected: rows.filter((t) => t.rejected).length,
+    evaluated: evaluated.length, conforming,
+    compliancePct: evaluated.length ? conforming / evaluated.length * 100 : null,
+  };
+}
+
+/* ------------------------------------------------------------ humedades (planta) */
+function addHumidity(entry) {
+  db.humidity.push({ id: uid(), date: entry.date || todayISO(), time: entry.time || nowHM(),
+                     plant: entry.plant || null, note: entry.note || null });
+  saveDB();
+}
+function lastHumidity(day) {
+  const list = db.humidity.filter((h) => h.date === (day || todayISO()))
+    .sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+  return list.length ? list[list.length - 1] : null;
+}
+
+/* ------------------------------------------------------------ capa de inteligencia
+   Convierte el registro en asesor: detecta tendencias y recomienda acción.
+   Reglas derivadas de la práctica de Rubén con la planta.               */
+function avg(a) { return a.length ? a.reduce((x, y) => x + y, 0) / a.length : null; }
+
+function trendAlerts(day) {
+  const rows = testsOfDate(day).filter((t) => !t.rejected);
+  const out = [];
+  const uw = rows.filter((t) => num(t.uw) != null);
+  const sl = rows.filter((t) => num(t.slump) != null);
+
+  // --- Regla del agua: peso unitario bajando + slump subiendo ---
+  if (uw.length >= 6 && sl.length >= 6) {
+    const dUW = avg(uw.slice(-3).map((t) => num(t.uw))) - avg(uw.slice(-6, -3).map((t) => num(t.uw)));
+    const dSL = avg(sl.slice(-3).map((t) => num(t.slump))) - avg(sl.slice(-6, -3).map((t) => num(t.slump)));
+    if (dUW <= -0.8 && dSL >= 0.4) {
+      out.push({
+        level: "susp", icon: "💧", title: "Posible exceso de agua",
+        text: `Peso unitario bajó ${fmt(Math.abs(dUW), 1)} pcf mientras el slump subió ${fmt(dSL, 2)}" en las últimas 3 pruebas.`,
+        action: "Avisar a la planta: verificar humedades de los agregados.",
+      });
+    } else if (dUW >= 0.8 && dSL <= -0.4) {
+      out.push({
+        level: "act", icon: "🧱", title: "Mezcla secándose",
+        text: `Peso unitario subió ${fmt(dUW, 1)} pcf y el slump bajó ${fmt(Math.abs(dSL), 2)}".`,
+        action: "Verificar dosificación de agua y humedades en planta.",
+      });
+    }
+  }
+
+  // --- Tendencia sostenida de peso unitario hacia un límite ---
+  if (uw.length >= 4) {
+    const last = uw.slice(-4).map((t) => num(t.uw));
+    const target = num(uw[uw.length - 1].uwTarget) ?? db.plan.uw.target;
+    const drift = last[last.length - 1] - last[0];
+    const dist = Math.abs(last[last.length - 1] - target);
+    const monotonic = last.every((v, i) => i === 0 || v <= last[i - 1]) ||
+                      last.every((v, i) => i === 0 || v >= last[i - 1]);
+    if (monotonic && Math.abs(drift) >= 1.0 && dist > db.plan.uw.act * 0.6) {
+      out.push({
+        level: "act", icon: "📉", title: `Peso unitario se está yendo ${drift < 0 ? "hacia abajo" : "hacia arriba"}`,
+        text: `4 lecturas seguidas en la misma dirección (${fmt(drift, 1)} pcf). Objetivo ${fmt(target, 1)}.`,
+        action: "Avisar a la planta antes de que se salga de límite.",
+      });
+    }
+  }
+
+  // --- Slump acercándose al límite de forma sostenida ---
+  if (sl.length >= 4) {
+    const last = sl.slice(-4).map((t) => num(t.slump));
+    const p = db.plan.slump;
+    const rising = last.every((v, i) => i === 0 || v >= last[i - 1]);
+    const falling = last.every((v, i) => i === 0 || v <= last[i - 1]);
+    if (rising && last[last.length - 1] >= p.actHi - 0.5 && last[last.length - 1] > last[0])
+      out.push({ level: "act", icon: "📈", title: "Slump subiendo hacia el límite",
+        text: `Última lectura ${fmt(last[last.length - 1], 2)}" (acción ${p.actHi}").`,
+        action: "Vigilar próxima descarga; posible agua en el camión." });
+    if (falling && last[last.length - 1] <= p.actLo + 0.5 && last[last.length - 1] < last[0])
+      out.push({ level: "act", icon: "📉", title: "Slump bajando hacia el límite",
+        text: `Última lectura ${fmt(last[last.length - 1], 2)}" (acción ${p.actLo}").`,
+        action: "Verificar tiempo de viaje y dosificación." });
+  }
+
+  // --- Humedades de planta vencidas ---
+  const h = lastHumidity(day);
+  const ref = rows.length ? (rows[rows.length - 1].testTime || rows[rows.length - 1].arrive) : null;
+  if (rows.length >= 3) {
+    if (!h) {
+      out.push({ level: "act", icon: "🌡", title: "Sin prueba de humedad registrada hoy",
+        text: "No hay registro de humedades de agregados en este vaciado.",
+        action: `Pedir a la planta una humedad (máx. cada ${db.plan.humidityMaxHours} h).` });
+    } else if (ref) {
+      const mins = minutesBetween(h.time, ref);
+      if (mins != null && mins > db.plan.humidityMaxHours * 60) {
+        out.push({ level: "act", icon: "🌡", title: "Humedad vencida",
+          text: `Última humedad a las ${h.time} — hace ${fmt(mins / 60, 1)} h.`,
+          action: `Solicitar nueva humedad (límite ${db.plan.humidityMaxHours} h).` });
+      }
+    }
+  }
+
+  // --- Racha en zona de acción ---
+  const recent = rows.slice(-5).filter((t) => worstZone(t) === "act");
+  if (recent.length >= 3)
+    out.push({ level: "act", icon: "⚠", title: "Racha en zona de acción",
+      text: `${recent.length} de las últimas 5 pruebas en zona de acción.`,
+      action: "Ajuste de planta probablemente necesario." });
+
+  return out;
+}
+
+/* Etiqueta de tendencia para las gráficas live (lo que Rubén realmente mira) */
+function trendLabel(day, key) {
+  const rows = testsOfDate(day).filter((t) => !t.rejected && num(t[key]) != null);
+  if (rows.length < 4) return "";
+  const v = rows.map((t) => num(t[key]));
+  const d = (v.slice(-2).reduce((a, b) => a + b, 0) / 2) - (v.slice(-4, -2).reduce((a, b) => a + b, 0) / 2);
+  const dp = key === "uw" ? 1 : 2;
+  if (Math.abs(d) < (key === "uw" ? 0.3 : 0.15)) return "▬ estable";
+  return (d > 0 ? "▲ subiendo " : "▼ bajando ") + fmt(Math.abs(d), dp) + (key === "uw" ? " pcf" : '"');
 }
 
 /* ------------------------------------------------------------ charts */
@@ -869,6 +1053,21 @@ function cell(k, v, u, prox, dp) {
   </div>`;
 }
 
+/* Anuncia con sonido los cambios reales: llegó un camión / salieron los resultados.
+   Suena una sola vez por evento; el primer render tras abrir la pantalla no suena. */
+const ANN = { arrival: null, verdict: null, primed: false };
+function announce(t) {
+  const arrivalKey = t.n + "|" + (t.arrive || "");
+  const verdictKey = t.resultsAt ? t.n + "|" + t.resultsAt + "|" + (t.rejected ? "R" : "A") : null;
+  if (!ANN.primed) { ANN.arrival = arrivalKey; ANN.verdict = verdictKey; ANN.primed = true; return; }
+  if (verdictKey && verdictKey !== ANN.verdict) {
+    ANN.verdict = verdictKey; ANN.arrival = arrivalKey;
+    playSnd(t.rejected || worstZone(t) === "susp" ? "bad" : "ok");
+    return;
+  }
+  if (arrivalKey !== ANN.arrival) { ANN.arrival = arrivalKey; playSnd("arrive"); }
+}
+
 function render() {
   if (SIM.active) return; // simulation drives the screen
   const days = testDates();
@@ -890,6 +1089,7 @@ function render() {
     document.getElementById("truck-num").textContent = "—";
     document.getElementById("truck-sub").innerHTML = "Sin camiones registrados hoy";
     setPlant(null);
+    ANN.primed = true;
     verdict.className = "verdict v-idle";
     verdict.innerHTML = `<div class="ring">—</div><div class="word">EN ESPERA</div><div class="note">QC en vivo</div>`;
     document.getElementById("indics").innerHTML =
@@ -898,19 +1098,27 @@ function render() {
   } else {
     const w = worstZone(last);
     const bad = last.rejected || w === "susp";
+    // Sin resultados todavía = en pruebas (no se puede aceptar lo que no se ha probado)
+    const testing = !last.rejected && num(last.slump) == null && num(last.uw) == null;
     // Verdict color follows the decision itself: accepted = green, rejected = red.
-    const s = bad ? "susp" : "ok";
+    const s = testing ? "idle" : bad ? "susp" : "ok";
     document.body.className = "s-" + s;
     document.getElementById("truck-num").textContent = last.truck || "—";
     document.getElementById("truck-sub").innerHTML =
       `Ticket <b>${esc(last.ticket || "—")}</b> · Load <b>#${rows.length}</b>${last.vol ? ` · <b>${fmt(last.vol, 1)}</b> CY` : ""}`;
     setPlant(last.plant);
     verdict.className = "verdict v-" + s;
-    verdict.innerHTML = bad
-      ? `<div class="ring">✕</div><div class="word">RECHAZADO</div><div class="note">No descargar</div>`
-      : w === "act"
-        ? `<div class="ring">✓</div><div class="word">ACEPTADO</div><div class="note">Zona de acción · QC vigilando</div>`
-        : `<div class="ring">✓</div><div class="word">ACEPTADO</div><div class="note">Proceda a descargar</div>`;
+    verdict.innerHTML = testing
+      ? `<div class="ring" style="animation: connpulse 1.6s ease-in-out infinite">···</div>
+         <div class="word">EN PRUEBAS</div><div class="note">Tomando muestras · QC</div>`
+      : bad
+        ? `<div class="ring">✕</div><div class="word">RECHAZADO</div><div class="note">No descargar</div>`
+        : w === "act"
+          ? `<div class="ring">✓</div><div class="word">ACEPTADO</div><div class="note">Zona de acción · QC vigilando</div>`
+          : `<div class="ring">✓</div><div class="word">ACEPTADO</div><div class="note">Proceda a descargar</div>`;
+
+    // Anuncio en vivo: llegada de camión y veredicto enviado desde Muestras
+    announce(last);
 
     const hora = last.end || last.testTime || last.start || last.arrive || null;
     document.getElementById("indics").innerHTML =
