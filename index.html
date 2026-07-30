@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Pantalla de Campo — QC PR-52</title>
+<title>Field Display — QC PR-52</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%230a0d12'/><circle cx='50' cy='50' r='26' fill='none' stroke='%2334d27b' stroke-width='8'/></svg>">
 <style>
 /* ============================================================
@@ -948,10 +948,22 @@ function tickClock() {
     d.toLocaleDateString("es-PR", { weekday: "long", day: "numeric", month: "long" });
 }
 
+/* Fullscreen seguro: en iPhone no existe la API — no debe romper nada */
+function goFullscreen() {
+  const el = document.documentElement;
+  const fn = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (!fn) return;
+  try { const p = fn.call(el); if (p && p.catch) p.catch(() => {}); } catch (_) {}
+}
+function exitFullscreenSafe() {
+  const fn = document.exitFullscreen || document.webkitExitFullscreen;
+  if (!fn) return;
+  try { const p = fn.call(document); if (p && p.catch) p.catch(() => {}); } catch (_) {}
+}
 document.body.addEventListener("click", () => {
   ensureAudio(); // silent unlock, no banner
-  if (document.fullscreenElement) document.exitFullscreen();
-  else document.documentElement.requestFullscreen().catch(() => {});
+  if (document.fullscreenElement || document.webkitFullscreenElement) exitFullscreenSafe();
+  else goFullscreen();
 });
 
 /* ============================================================
@@ -1117,16 +1129,15 @@ function startSim() {
       <path d="M 69.7 93.6 A 40 40 0 1 1 95.85 59.49" fill="none" stroke="var(--logo-navy)" stroke-width="15"/>
       <polyline points="62,64 86,82 114,46" fill="none" stroke="#96c93d" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>
-    <div class="ol-title">Pantalla de Campo</div>
+    <div class="ol-title">Field Display</div>
     <div class="ol-sub">Segarra Engineering · PR-52 · Simulación</div>
-    <div class="ol-btn">▶&nbsp;&nbsp;Toque para comenzar</div>
-    <div class="ol-note">pantalla completa + sonido</div>`;
+    <div class="ol-btn">▶&nbsp;&nbsp;Toque para comenzar</div>`;
   ol.addEventListener("click", (e) => {
     e.stopPropagation();
     ensureAudio();                                            // gesto: desbloquea el audio
-    document.documentElement.requestFullscreen().catch(() => {});
     ol.remove();
     simStep();                                                // arranca la secuencia
+    goFullscreen();                                           // en iPhone no existe: se omite sin error
   });
   document.body.appendChild(ol);
 }
