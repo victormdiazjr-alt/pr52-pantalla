@@ -21,6 +21,7 @@
   --act: #f5b83d;
   --susp: #ff5a52;
   --idle: #5b8dbf;
+  --logo-navy: #4a63d8; /* navy del logo, aclarado para fondo oscuro */
 }
 /* light theme — same layout, daylight palette */
 :root[data-theme="light"] {
@@ -32,6 +33,7 @@
   --act: #c8880a;
   --susp: #e0362d;
   --idle: #3d76ab;
+  --logo-navy: #2b3a8c;
 }
 :root[data-theme="light"] body.s-ok    { --glow: rgba(14,157,85,.13); }
 :root[data-theme="light"] body.s-act   { --glow: rgba(200,136,10,.12); }
@@ -214,6 +216,23 @@ footer {
 .theme-toggle:hover, .sound-toggle:hover { transform: scale(1.1); border-color: var(--text); }
 .sound-toggle { right: calc(1.2vw + 8vh); }
 .sound-toggle.muted { opacity: .55; border-style: dashed; }
+
+/* ---------- overlay de inicio (simulación) ---------- */
+#sim-overlay {
+  position: fixed; inset: 0; z-index: 400;
+  background: radial-gradient(900px 500px at 50% 38%, rgba(74,99,216,.14), transparent 65%), var(--bg);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2.2vh; cursor: pointer;
+}
+#sim-overlay .ol-title { font-size: 4.6vh; font-weight: 750; letter-spacing: .02em; }
+#sim-overlay .ol-sub { font-size: 1.9vh; font-weight: 700; color: var(--muted); letter-spacing: .28em; text-transform: uppercase; }
+#sim-overlay .ol-btn {
+  margin-top: 3vh; padding: 2.2vh 4.5vw; border-radius: 999px;
+  border: 0.4vh solid var(--ok); color: var(--ok);
+  font-size: 2.5vh; font-weight: 800; letter-spacing: .2em; text-transform: uppercase;
+  animation: connpulse 1.9s ease-in-out infinite;
+}
+#sim-overlay .ol-note { font-size: 1.6vh; color: var(--muted); letter-spacing: .22em; text-transform: uppercase; }
 </style>
 </head>
 <body class="s-idle">
@@ -222,15 +241,9 @@ footer {
 <header>
   <div class="brand-left">
     <svg class="qclogo" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" aria-label="QC">
-      <!-- Q ring (two arcs, gaps for the green dot and the c) -->
-      <path d="M 91.96 38.47 A 40 40 0 0 1 93.58 69.68" fill="none" stroke="#2b3a8c" stroke-width="17"/>
-      <path d="M 64.32 95.12 A 40 40 0 1 1 73.53 20.05" fill="none" stroke="#2b3a8c" stroke-width="17"/>
-      <!-- green dot -->
-      <circle cx="84.3" cy="27.7" r="11" fill="#a4cd39"/>
-      <!-- Q tail -->
-      <polygon points="64.05,57.56 86.05,87.56 73.95,96.44 51.95,66.44" fill="#2b3a8c"/>
-      <!-- c -->
-      <path d="M 103.03 77.42 A 12.5 12.5 0 1 0 103.03 96.58" fill="none" stroke="#2b3a8c" stroke-width="10"/>
+      <!-- Q·Check: la Q cuyo rabo es un checkmark -->
+      <path d="M 69.7 93.6 A 40 40 0 1 1 95.85 59.49" fill="none" stroke="var(--logo-navy)" stroke-width="15"/>
+      <polyline points="62,64 86,82 114,46" fill="none" stroke="#96c93d" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>
     <div>
       <div class="brand-name">Segarra Engineering</div>
@@ -1074,11 +1087,12 @@ function simStep() {
   clearSimTimers();
   const t = SIM_TRUCKS[SIM.i % SIM_TRUCKS.length];
   const hora = nowHM();
-  SIM.loads++;
+  SIM.loads++;                                 // cada camión = +1 load
+  SIM.cy += t.vol;                             // y +10 CY a las yardas de hoy
   playSnd("arrive");                          // sonido 1: llegó un camión
   simArrival(t, hora);
   SIM.tVerdict = setTimeout(() => {
-    if (t.bad) SIM.rej++; else SIM.cy += t.vol;
+    if (t.bad) SIM.rej++;
     simVerdict(t, hora);                       // sonido 2 (dentro): aceptado o rechazado
     SIM.tNext = setTimeout(() => { SIM.i++; simStep(); }, 15000); // veredicto visible 15 s
   }, 5000); // pruebas 5 s
@@ -1091,12 +1105,30 @@ document.addEventListener("visibilitychange", () => {
 function startSim() {
   SIM.active = true;
   document.getElementById("proj-line").textContent = "PR-52 · FASE 10 · CARRIL L3 · SIMULACIÓN";
-  ensureAudio();
-  // silent unlock on any interaction + periodic retry (browser autoplay policy)
+  // silent unlock on any interaction (browser autoplay policy)
   ["pointerdown", "touchstart", "keydown"].forEach((ev) =>
     window.addEventListener(ev, ensureAudio));
-  const retry = setInterval(() => { if (audioLocked()) ensureAudio(); else clearInterval(retry); }, 3000);
-  simStep();
+
+  // Pantalla de inicio: un toque = pantalla completa + sonido + arranque
+  const ol = document.createElement("div");
+  ol.id = "sim-overlay";
+  ol.innerHTML = `
+    <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" style="height:20vh">
+      <path d="M 69.7 93.6 A 40 40 0 1 1 95.85 59.49" fill="none" stroke="var(--logo-navy)" stroke-width="15"/>
+      <polyline points="62,64 86,82 114,46" fill="none" stroke="#96c93d" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <div class="ol-title">Pantalla de Campo</div>
+    <div class="ol-sub">Segarra Engineering · PR-52 · Simulación</div>
+    <div class="ol-btn">▶&nbsp;&nbsp;Toque para comenzar</div>
+    <div class="ol-note">pantalla completa + sonido</div>`;
+  ol.addEventListener("click", (e) => {
+    e.stopPropagation();
+    ensureAudio();                                            // gesto: desbloquea el audio
+    document.documentElement.requestFullscreen().catch(() => {});
+    ol.remove();
+    simStep();                                                // arranca la secuencia
+  });
+  document.body.appendChild(ol);
 }
 
 loadDB();
