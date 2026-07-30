@@ -240,6 +240,7 @@ footer {
 
 <footer id="totals"></footer>
 
+<script>window.QC_SIM_AUTO = true;</script>
 <script>
 /* QC seed — reverse-engineered from 'DVG - Concrete Control Charts.xlsx' (Segarra)
    397 historical tests, 2025-11-25 to 2026-07-18. Loaded on first run only. */
@@ -799,6 +800,15 @@ function proximity(key, t) {
   return null;
 }
 
+/* 12-hour time display (data is stored as 24h HH:MM) */
+function fmt12(hm) {
+  if (!hm) return null;
+  let [h, m] = hm.split(":").map(Number);
+  const ap = h >= 12 ? "PM" : "AM";
+  h = h % 12 || 12;
+  return h + ":" + String(m).padStart(2, "0") + '<span style="font-size:.38em; font-weight:600; letter-spacing:.08em"> ' + ap + "</span>";
+}
+
 function cell(k, v, u, prox, dp) {
   return `<div class="cell ${prox ? "p-" + prox : ""}">
     <div class="k"><i></i>${k}</div>
@@ -808,6 +818,7 @@ function cell(k, v, u, prox, dp) {
 }
 
 function render() {
+  if (SIM.active) return; // simulation drives the screen
   const days = testDates();
   const today = todayISO();
   const day = days.includes(today) ? today : days[0];
@@ -853,7 +864,7 @@ function render() {
       cell("Peso Unit", num(last.uw), "pcf", proximity("uw", last), 1) +
       cell("Aire", num(last.air), "%", proximity("air", last), 1) +
       cell("Temp", num(last.temp), "°F", proximity("temp", last), 0) +
-      `<div class="cell"><div class="k"><i></i>Hora</div><div class="v" style="font-size:7.6vh">${hora || "—"}</div><div class="u">último registro</div></div>`;
+      `<div class="cell"><div class="k"><i></i>Hora</div><div class="v" style="font-size:7.6vh">${fmt12(hora) || "—"}</div><div class="u">último registro</div></div>`;
   }
 
   document.getElementById("totals").innerHTML = `
@@ -873,16 +884,134 @@ window.addEventListener("offline", updateConn);
 
 function tickClock() {
   const d = new Date();
-  document.getElementById("clock-hm").textContent =
-    String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  let h = d.getHours();
+  const ap = h >= 12 ? "PM" : "AM";
+  h = h % 12 || 12;
+  document.getElementById("clock-hm").innerHTML =
+    h + ":" + String(d.getMinutes()).padStart(2, "0") +
+    '<span style="font-size:.42em; font-weight:500; color:var(--muted)"> ' + ap + "</span>";
   document.getElementById("clock-dt").textContent =
     d.toLocaleDateString("es-PR", { weekday: "long", day: "numeric", month: "long" });
 }
 
 document.body.addEventListener("click", () => {
+  if (SIM.active && audioLocked()) { ensureAudio(); return; } // first tap unlocks sound
   if (document.fullscreenElement) document.exitFullscreen();
   else document.documentElement.requestFullscreen().catch(() => {});
 });
+
+/* ============================================================
+   MODO SIMULACIÓN (?sim en el URL, o QC_SIM_AUTO en el demo web)
+   Ciclo por camión: llega (sonido) → 5 s de pruebas →
+   veredicto ACEPTADO/RECHAZADO (sonido) por 10 s → siguiente.
+   ============================================================ */
+const SIM = { active: false, i: 0, loads: 11, cy: 112.5, rej: 0 };
+
+const SIM_TRUCKS = [
+  { truck: "115", ticket: "66901", vol: 10, slump: 3.25, uw: 150.3, air: 1.2, temp: 88, bad: false },
+  { truck: "122", ticket: "66902", vol: 10, slump: 3.5,  uw: 149.8, air: 1.4, temp: 90, bad: false },
+  { truck: "108", ticket: "66903", vol: 10, slump: 3.0,  uw: 150.1, air: 1.3, temp: 97, bad: true,
+    reason: "TEMPERATURA 97 °F — MÁX 95" },
+  { truck: "131", ticket: "66904", vol: 10, slump: 2.75, uw: 150.6, air: 1.1, temp: 89, bad: false },
+];
+
+/* ---------- sonidos (WebAudio, sin archivos) ---------- */
+let actx = null;
+function audioLocked() { return !actx || actx.state !== "running"; }
+function ensureAudio() {
+  if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+  if (actx && actx.state === "suspended") actx.resume();
+  setTimeout(updateSoundHint, 150);
+}
+function tone(f, t0, dur, type = "sine", g = 0.2) {
+  if (audioLocked()) return;
+  const o = actx.createOscillator(), gn = actx.createGain();
+  o.type = type; o.frequency.value = f;
+  o.connect(gn); gn.connect(actx.destination);
+  const t = actx.currentTime + t0;
+  gn.gain.setValueAtTime(0, t);
+  gn.gain.linearRampToValueAtTime(g, t + 0.02);
+  gn.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.start(t); o.stop(t + dur + 0.05);
+}
+const sndArrive = () => { tone(660, 0, 0.18); tone(880, 0.2, 0.28); };                       // din-don
+const sndOk     = () => { tone(523, 0, 0.14); tone(659, 0.15, 0.14); tone(784, 0.3, 0.4); }; // acorde asc.
+const sndBad    = () => { tone(210, 0, 0.32, "square", 0.16); tone(165, 0.38, 0.55, "square", 0.16); }; // bocina
+
+function updateSoundHint() {
+  const el = document.getElementById("sound-hint");
+  if (el) el.style.display = SIM.active && audioLocked() ? "block" : "none";
+}
+
+/* ---------- render del ciclo ---------- */
+function simIndics(t, hora) {
+  const pseudo = { slump: t.slump, uw: t.uw, air: t.air, temp: t.temp, uwTarget: db.plan.uw.target };
+  document.getElementById("indics").innerHTML =
+    cell("Slump", t.slump, "in", proximity("slump", pseudo), 2) +
+    cell("Peso Unit", t.uw, "pcf", proximity("uw", pseudo), 1) +
+    cell("Aire", t.air, "%", proximity("air", pseudo), 1) +
+    cell("Temp", t.temp, "°F", proximity("temp", pseudo), 0) +
+    `<div class="cell"><div class="k"><i></i>Hora</div><div class="v" style="font-size:7.6vh">${fmt12(hora)}</div><div class="u">llegada</div></div>`;
+}
+function simTotals() {
+  document.getElementById("totals").innerHTML = `
+    <div class="tot"><span class="k">Yardas hoy</span><span class="v">${fmt(SIM.cy, 1)}</span><span class="u">CY</span></div>
+    <div class="tot"><span class="k">Loads</span><span class="v">${SIM.loads}</span></div>
+    <div class="tot ${SIM.rej ? "warn" : ""}"><span class="k">Rechazados</span><span class="v">${SIM.rej}</span></div>`;
+}
+function simArrival(t, hora) {
+  document.body.className = "s-idle";
+  document.getElementById("truck-num").textContent = t.truck;
+  document.getElementById("truck-sub").innerHTML =
+    `Ticket <b>${t.ticket}</b> · Load <b>#${SIM.loads}</b> · <b>${fmt(t.vol, 1)}</b> CY · llegó ${fmt12(hora)}`;
+  const v = document.getElementById("verdict");
+  v.className = "verdict v-idle";
+  v.innerHTML = `<div class="ring" style="animation: connpulse 1.6s ease-in-out infinite">···</div>
+    <div class="word">EN PRUEBAS</div><div class="note">Tomando muestras · QC</div>`;
+  simIndics(t, hora);
+  simTotals();
+}
+function simVerdict(t) {
+  const v = document.getElementById("verdict");
+  if (t.bad) {
+    document.body.className = "s-susp";
+    v.className = "verdict v-susp";
+    v.innerHTML = `<div class="ring">✕</div><div class="word">RECHAZADO</div><div class="note">${t.reason || "Fuera de límites"} · No descargar</div>`;
+    sndBad();
+  } else {
+    document.body.className = "s-ok";
+    v.className = "verdict v-ok";
+    v.innerHTML = `<div class="ring">✓</div><div class="word">ACEPTADO</div><div class="note">Proceda a descargar</div>`;
+    sndOk();
+  }
+  simTotals();
+}
+function simStep() {
+  const t = SIM_TRUCKS[SIM.i % SIM_TRUCKS.length];
+  const hora = nowHM();
+  SIM.loads++;
+  sndArrive();
+  simArrival(t, hora);
+  setTimeout(() => {
+    if (t.bad) SIM.rej++; else SIM.cy += t.vol;
+    simVerdict(t);
+    setTimeout(() => { SIM.i++; simStep(); }, 10000); // veredicto visible 10 s
+  }, 5000); // pruebas 5 s
+}
+function startSim() {
+  SIM.active = true;
+  document.getElementById("proj-line").textContent = "PR-52 · FASE 10 · CARRIL L3 · SIMULACIÓN";
+  const hint = document.createElement("div");
+  hint.id = "sound-hint";
+  hint.textContent = "🔊 TOQUE LA PANTALLA PARA ACTIVAR EL SONIDO";
+  hint.style.cssText = "position:fixed; top:2vh; left:50%; transform:translateX(-50%); z-index:250;" +
+    "font-size:1.9vh; font-weight:700; letter-spacing:.2em; color:var(--act);" +
+    "background:rgba(245,184,61,.12); border:1px solid var(--act); border-radius:999px; padding:1vh 2.2vw;";
+  document.body.appendChild(hint);
+  ensureAudio();
+  updateSoundHint();
+  simStep();
+}
 
 loadDB();
 initTheme("dark"); /* the field display defaults to dark */
@@ -893,6 +1022,7 @@ tickClock();
 updateConn();
 setInterval(tickClock, 10000);
 setInterval(render, 30000);
+if (window.QC_SIM_AUTO || new URLSearchParams(location.search).has("sim")) startSim();
 </script>
 </body>
 </html>
