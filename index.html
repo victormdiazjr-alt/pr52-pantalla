@@ -225,14 +225,14 @@ footer {
   gap: 2.2vh; cursor: pointer;
 }
 #sim-overlay .ol-title { font-size: 4.6vh; font-weight: 750; letter-spacing: .02em; }
-#sim-overlay .ol-sub { font-size: 1.9vh; font-weight: 700; color: var(--muted); letter-spacing: .28em; text-transform: uppercase; }
+#sim-overlay .ol-brand { font-size: 2.4vh; font-weight: 700; color: var(--muted); letter-spacing: .26em; text-transform: uppercase; text-align: center; }
+#sim-overlay .ol-route { font-size: 6vh; font-weight: 850; letter-spacing: .1em; text-align: center; }
 #sim-overlay .ol-btn {
   margin-top: 3vh; padding: 2.2vh 4.5vw; border-radius: 999px;
   border: 0.4vh solid var(--ok); color: var(--ok);
   font-size: 2.5vh; font-weight: 800; letter-spacing: .2em; text-transform: uppercase;
   animation: connpulse 1.9s ease-in-out infinite;
 }
-#sim-overlay .ol-note { font-size: 1.6vh; color: var(--muted); letter-spacing: .22em; text-transform: uppercase; }
 </style>
 </head>
 <body class="s-idle">
@@ -1116,7 +1116,7 @@ document.addEventListener("visibilitychange", () => {
 });
 function startSim() {
   SIM.active = true;
-  document.getElementById("proj-line").textContent = "PR-52 · FASE 10 · CARRIL L3 · SIMULACIÓN";
+  document.getElementById("proj-line").textContent = "PR-52 · FASE 10 · CARRIL L3";
   // silent unlock on any interaction (browser autoplay policy)
   ["pointerdown", "touchstart", "keydown"].forEach((ev) =>
     window.addEventListener(ev, ensureAudio));
@@ -1130,7 +1130,8 @@ function startSim() {
       <polyline points="62,64 86,82 114,46" fill="none" stroke="#96c93d" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>
     <div class="ol-title">Field Display</div>
-    <div class="ol-sub">Segarra Engineering · PR-52 · Simulación</div>
+    <div class="ol-brand">Segarra Engineering</div>
+    <div class="ol-route">PR-52</div>
     <div class="ol-btn">▶&nbsp;&nbsp;Toque para comenzar</div>`;
   ol.addEventListener("click", (e) => {
     e.stopPropagation();
