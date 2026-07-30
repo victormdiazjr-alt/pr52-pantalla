@@ -196,16 +196,16 @@ footer {
 .tot.warn .v { color: var(--susp); font-weight: 350; }
 .theme-toggle {
   position: fixed; bottom: 2vh; right: 1.2vw; z-index: 300;
-  width: 5.6vh; height: 5.6vh; border-radius: 50%;
-  border: 1px solid var(--hairline);
-  background: transparent;
-  color: var(--muted);
-  font-size: 2.6vh; line-height: 1;
+  width: 6.4vh; height: 6.4vh; border-radius: 50%;
+  border: 0.35vh solid var(--muted);
+  background: rgba(127,138,148,.16);
+  color: var(--text);
+  font-size: 3vh; line-height: 1;
   cursor: pointer;
-  opacity: .55;
-  transition: opacity .2s, transform .15s;
+  box-shadow: 0 0.4vh 1.8vh rgba(0,0,0,.35);
+  transition: transform .15s, border-color .15s;
 }
-.theme-toggle:hover { opacity: 1; transform: scale(1.08); }
+.theme-toggle:hover { transform: scale(1.1); border-color: var(--text); }
 </style>
 </head>
 <body class="s-idle">
